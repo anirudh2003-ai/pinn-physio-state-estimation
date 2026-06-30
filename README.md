@@ -3,6 +3,53 @@
 Deep learning system for recovering cardiovascular state trajectories from a single short-channel fNIRS signal using physics-informed time-series feature extraction, a learned forward observation model, a causal WaveNet inverse encoder, and innovation-feedback drift correction.
 
 This project demonstrates applied AI/Data Science skills in probabilistic modelling, physiological signal processing, time-series forecasting, autoregressive inference, and closed-loop neural state estimation.
+
+---
+
+## Novel Contribution
+
+This project addresses a novel inverse problem in biomedical AI: recovering multiple cardiovascular state trajectories from a single short-channel fNIRS observation.
+
+Short-channel fNIRS signals are often treated as nuisance physiological noise and removed during cortical fNIRS analysis. This project instead treats the short-channel signal as an information-rich physiological measurement and uses it as the only inference-time input for estimating:
+
+- Diastolic blood pressure
+- Systolic blood pressure
+- Cardiac output
+- Stroke volume
+
+The novelty is both in the **problem formulation** and in the **architecture**.
+
+### 1. Novel Problem Formulation
+
+This project tackles an ill-posed inverse problem: recovering a four-dimensional cardiovascular state from one noisy scalar optical signal.
+
+Instead of using short-channel fNIRS only for noise regression, this project uses it as the primary signal for multi-vital cardiovascular trajectory recovery. The challenge is that many possible cardiovascular states can produce similar optical observations, so the model must recover latent physiological structure from a compressed, noisy, and temporally evolving signal.
+
+To my knowledge, no prior work has attempted this specific inverse problem of recovering multiple cardiovascular state trajectories from a single short-channel fNIRS signal.
+
+### 2. Novel Architecture
+
+The architecture combines physics-informed time-series feature extraction with a learned closed-loop neural state-estimation system.
+
+The physics-informed component is primarily in the feature extraction stage, where the fNIRS time series is decomposed into physiologically meaningful causal features. These features capture cardiac-band, respiratory-band, trend-band, derivative, phase, EMA, rolling-statistic, and Kalman-smoothed dynamics before being passed into the neural model.
+
+The full architecture combines:
+
+- Physics-informed feature extraction from the fNIRS time series
+- 75 strictly causal signal features designed around cardiovascular timescales
+- Conditional normalizing-flow teacher for learning the forward observation model `P(y|x)`
+- Causal WaveNet student for inverse cardiovascular state estimation
+- Observation-only backbone to prevent autoregressive persistence collapse
+- Learned observation-consistency check using a frozen forward model
+- Innovation-feedback correction inspired by Kalman filtering
+- Gated EMA bias integrator for long-horizon drift correction
+- Kappa mixing to blend autoregressive predictions with direct observation estimates
+- Closed-loop autoregressive inference with no ground-truth physiology at test time
+
+The architecture is designed specifically for the challenge of recovering hidden physiological state from a compressed, noisy, single-channel observation while preventing long-horizon autoregressive drift.
+
+---
+
 ## Key Results
 
 | Result | Value |
@@ -27,7 +74,7 @@ The model estimates:
 - Cardiac output
 - Stroke volume
 
-Unlike a standard supervised regression model, this system uses a physics-informed observation-consistency loop. A forward model learns how cardiovascular state produces the observed optical signal, while an inverse model learns to recover the cardiovascular state from the optical signal alone.
+Unlike a standard supervised regression model, this system uses physics-informed time-series feature extraction and a learned observation-consistency loop. A forward model learns how cardiovascular state produces the observed optical signal, while an inverse model learns to recover the cardiovascular state from the optical signal alone.
 
 ```text
 Short-channel fNIRS
@@ -64,6 +111,8 @@ The main challenge is not just prediction accuracy, but maintaining stability wh
 - Learned observation-consistency check using a frozen forward model
 - Innovation-feedback correction inspired by Kalman filtering
 - Gated EMA bias integrator for long-horizon drift correction
+- Observation-only backbone to prevent autoregressive persistence collapse
+- Kappa mixing to stabilise closed-loop predictions
 - Closed-loop autoregressive inference with no ground-truth physiology at test time
 
 ---
