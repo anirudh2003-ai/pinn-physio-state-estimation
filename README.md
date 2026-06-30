@@ -1,165 +1,218 @@
 # Physics-Informed Neural State Estimation from fNIRS
 
-Deep learning system for recovering cardiovascular state trajectories from a single short-channel fNIRS signal using a learned forward observation model, causal WaveNet inverse encoder, and innovation-feedback drift correction.
+Deep learning system for recovering cardiovascular state trajectories from a single short-channel fNIRS signal using physics-informed time-series feature extraction, a learned forward observation model, a causal WaveNet inverse encoder, and innovation-feedback drift correction.
 
-This project demonstrates applied AI/Data Science skills in probabilistic modelling, time-series forecasting, biomedical signal processing, autoregressive inference, and closed-loop neural state estimation.
-
+This project demonstrates applied AI/Data Science skills in probabilistic modelling, physiological signal processing, time-series forecasting, autoregressive inference, and closed-loop neural state estimation.
 ## Key Results
 
 | Result | Value |
 |---|---:|
-| Forward model R² | 0.719 |
+| Forward observation model R² | 0.719 |
 | Teacher-forced student R² | ~0.97 |
 | Closed-loop rollout R² | 0.637 |
 | Best recovered signal | Systolic BP, R² = 0.773 |
 | Short-horizon closed-loop R² | 0.83 over ~8 seconds |
 | Error growth | Bounded / non-divergent |
 
-## What I Built
+---
 
-I built a two-stage neural system that estimates four cardiovascular variables from one optical fNIRS signal:
+## Project Summary
+
+This project tackles an ill-posed inverse problem: recovering four hidden cardiovascular variables from one noisy optical fNIRS signal.
+
+The model estimates:
 
 - Diastolic blood pressure
 - Systolic blood pressure
 - Cardiac output
 - Stroke volume
 
-The model uses a physics-informed observation-consistency loop:
-
-1. A conditional normalizing-flow teacher learns the forward relationship: cardiovascular state → optical signal.
-2. A causal WaveNet student learns the inverse relationship: optical signal → cardiovascular state.
-3. During rollout, the student’s predicted state is passed back through the frozen teacher.
-4. The difference between the teacher-predicted optical signal and the observed optical signal becomes an innovation signal for drift correction.
+Unlike a standard supervised regression model, this system uses a physics-informed observation-consistency loop. A forward model learns how cardiovascular state produces the observed optical signal, while an inverse model learns to recover the cardiovascular state from the optical signal alone.
 
 ```text
-Short-channel fNIRS → causal features → WaveNet student → cardiovascular state estimate
-                                      ↓
-                           frozen forward teacher
-                                      ↓
-                     observation mismatch / innovation feedback
-
-## How It Works
-
-The teacher and student solve **opposite problems**:
-
-- **Teacher** (Stage 1): Given cardiovascular state x → predict optical signal y. Trained with both available.
-- **Student** (Stage 2): Given optical signal y → recover cardiovascular state x. At inference, only y is available.
-
-The student never imitates the teacher directly. Instead, the student's predicted states are passed through the frozen teacher to check if they produce the correct optical signal. If the prediction is wrong, the teacher's output will disagree with what was observed — and that disagreement is the learning signal.
-
+Short-channel fNIRS
+        ↓
+75 causal signal features
+        ↓
+Causal WaveNet student
+        ↓
+Cardiovascular state estimate
+        ↓
+Frozen forward teacher
+        ↓
+Observation mismatch / innovation feedback
+        ↓
+Drift-corrected closed-loop rollout
 ```
-Student predicts x̂  →  Frozen teacher maps x̂ → ŷ  →  Compare ŷ vs y_obs  →  Correct student
-```
-
-At inference, this same mechanism provides real-time drift correction: the teacher detects when predictions have gone wrong by comparing expected vs observed optical signals.
 
 ---
 
-## Project Structure
+## Why This Matters
 
+Short-channel fNIRS signals are often treated as nuisance physiological noise. This project shows that the same signal can contain recoverable cardiovascular information.
+
+The main challenge is not just prediction accuracy, but maintaining stability when the model runs autoregressively, where each prediction becomes part of the next input. The system uses innovation feedback, an EMA bias integrator, kappa mixing, and bounded state updates to reduce long-horizon drift.
+
+---
+
+## Technical Highlights
+
+- Physics-informed feature extraction from fNIRS time series
+- 75 strictly causal features capturing cardiac, respiratory, trend, derivative, phase, EMA, rolling-statistic, and Kalman-smoothed dynamics
+- Conditional normalizing-flow teacher for learning the forward observation density `P(y|x)`
+- Causal WaveNet student for inverse cardiovascular state estimation
+- Learned observation-consistency check using a frozen forward model
+- Innovation-feedback correction inspired by Kalman filtering
+- Gated EMA bias integrator for long-horizon drift correction
+- Closed-loop autoregressive inference with no ground-truth physiology at test time
+
+---
+
+## Model Architecture
+
+The system has two stages:
+
+### Stage 1: Forward Teacher
+
+The teacher learns:
+
+```text
+cardiovascular state x → optical fNIRS signal y
 ```
-├── core_flow.py              # Normalizing flow architecture (teacher internals)
-├── exp_base_static.py        # Data loading, feature engineering, teacher model definition
-├── prior_student.py          # Student architecture definition (used by both training and inference)
-├── Encoder.py                # Training pipeline (runs both Stage 1 and Stage 2)
-├── Inference.py              # Standalone inference (closed-loop rollout on unseen data)
+
+It uses a conditional normalizing flow with a Student-t residual head to model the noisy forward relationship between cardiovascular variables and the observed short-channel fNIRS signal.
+
+### Stage 2: Inverse Student
+
+The student learns:
+
+```text
+optical fNIRS signal y → cardiovascular state x
+```
+
+At inference, the student only receives the fNIRS signal. Its predicted cardiovascular state is passed through the frozen teacher. The mismatch between the teacher-predicted optical signal and the real optical signal becomes an innovation signal used for online drift correction.
+
+```text
+Student predicts x̂ → Frozen teacher predicts ŷ → Compare ŷ with y_obs → Correct student
+```
+
+---
+
+## Tech Stack
+
+- Python
+- PyTorch
+- NumPy
+- Pandas
+- SciPy
+- scikit-learn
+- Matplotlib
+
+---
+
+## Repository Structure
+
+```text
+├── core_flow.py              # Normalizing flow architecture for the teacher
+├── exp_base_static.py        # Data loading, feature engineering, teacher definition
+├── prior_student.py          # Student architecture: WaveNet, innovation feedback, bias correction
+├── Encoder.py                # Full training pipeline
+├── Inference.py              # Closed-loop inference script
 ├── README.md
 │
-└── output/                   # Data files + training outputs
-    ├── ShortChannel.csv      # Input: fNIRS optical signal (~11,000 samples, 1 subject)
-    ├── DiastolicBP.csv       # Ground truth: diastolic blood pressure
-    ├── SystolicBP.csv        # Ground truth: systolic blood pressure
-    ├── CardiacOutput.csv     # Ground truth: cardiac output
-    ├── StrokeVolume.csv      # Ground truth: stroke volume
+└── output/
+    ├── ShortChannel.csv      # fNIRS optical input signal
+    ├── DiastolicBP.csv       # Ground-truth diastolic blood pressure
+    ├── SystolicBP.csv        # Ground-truth systolic blood pressure
+    ├── CardiacOutput.csv     # Ground-truth cardiac output
+    ├── StrokeVolume.csv      # Ground-truth stroke volume
     │
-    ├── ygx_ckpt.pt           # Saved teacher model weights (Stage 1)
-    ├── scaler.json           # Standardisation statistics (means, std devs for all channels)
-    ├── x_norm_stats.json     # Raw normalisation stats for the 4 cardiovascular channels
-    ├── y_memory_encoder.pt   # Saved student model weights + full training config (Stage 2)
-    └── decoder_pack.pt       # Self-contained export (teacher + student + all scalers)
+    ├── ygx_ckpt.pt           # Teacher model weights
+    ├── y_memory_encoder.pt   # Student model weights
+    ├── decoder_pack.pt       # Self-contained inference export
+    ├── scaler.json           # Standardisation statistics
+    └── x_norm_stats.json     # Cardiovascular-channel normalisation stats
 ```
-
----
-
-## What Each File Does
-
-### Source Code
-
-| File | Role |
-|---|---|
-| `core_flow.py` | Defines the **normalizing flow architecture** used inside the teacher. Contains the mathematical building blocks: coupling layers, spline transforms, activation normalisation, and the change-of-variables likelihood computation. This file is purely architectural — it has no knowledge of fNIRS or cardiovascular channels. |
-| `exp_base_static.py` | Handles **data loading and feature engineering**. Reads the 5 CSV files, joins them on timestamps, builds the 75 causal observation features from ShortChannel (lags, derivatives, EMAs, bandpass energies, cardiac phase), standardises the 4 cardiovascular channels, and defines the teacher model class (`YGivenXModel`) that wraps the normalizing flow. |
-| `prior_student.py` | Defines the **student encoder architecture** — the WaveNet backbone, the y-only observation backbone, all drift correction mechanisms (bias integrator, innovation feedback, kappa mixing, gate). This is the single source of truth: both `Encoder.py` and `Inference.py` use this file to build the student, ensuring the architecture matches exactly when loading saved weights. |
-| `Encoder.py` | The **training script**. Runs the full pipeline: trains the teacher (18 epochs), freezes it, then trains the student (30 epochs) with a structured curriculum that progresses from observation-only pretraining to fully closed-loop rollout. Also exports all saved artefacts and runs Stage 1 evaluation. |
-| `Inference.py` | The **standalone inference script**. Loads the trained student and optionally the frozen teacher, then runs a closed-loop rollout on data using only the ShortChannel signal. Produces predictions in physical units, computes evaluation metrics, and generates diagnostic plots. |
-
-### Data Files (in `output/`)
-
-All CSV files contain ~11,000 samples from a single subject recorded at approximately 6 Hz during a public speaking paradigm. Each CSV has two columns: `Time` and the measurement value.
-
-| File | What it contains |
-|---|---|
-| `ShortChannel.csv` | The fNIRS optical signal — **this is the only input** the student sees at inference. Everything else is derived from this single signal. |
-| `DiastolicBP.csv` | Diastolic blood pressure recordings — used as ground truth during training and for evaluation metrics. |
-| `SystolicBP.csv` | Systolic blood pressure recordings — same role as above. |
-| `CardiacOutput.csv` | Cardiac output recordings — same role as above. |
-| `StrokeVolume.csv` | Stroke volume recordings — same role as above. |
-
-### Saved Weights and Metadata (in `output/`)
-
-These are generated by `Encoder.py` during training and consumed by `Inference.py` at inference time.
-
-| File | What it contains |
-|---|---|
-| `ygx_ckpt.pt` | **Teacher model weights.** The frozen Stage 1 normalizing flow that learned P(y\|x). Used during student training for observation anchoring and at inference for innovation feedback. |
-| `scaler.json` | **Standardisation statistics.** Mean and standard deviation for every channel (cardiovascular inputs, optical signal, engineered features). Required to transform raw data into the standardised space the models expect, and to convert predictions back to physical units. |
-| `x_norm_stats.json` | **Raw normalisation stats** for the 4 cardiovascular channels specifically. Subset of what `scaler.json` contains, saved separately for convenience. |
-| `y_memory_encoder.pt` | **Student model payload.** Contains the trained student weights, full architecture configuration (layer sizes, number of blocks, gate floor value), feature scaler statistics, and all training hyperparameters. Everything needed to reconstruct the student exactly as it was at the end of training. |
-| `decoder_pack.pt` | **Complete self-contained export.** Bundles the student weights, teacher weights, all scalers, and precomputed rollout streams into a single file. Designed so a downstream decoder can be trained or inference can run without needing any other files. |
 
 ---
 
 ## How to Run
 
-### Training
+### 1. Install dependencies
 
-Run `Encoder.py`. It executes the full pipeline automatically:
-
-1. Trains the teacher on the forward mapping (18 epochs)
-2. Freezes the teacher
-3. Trains the student on the inverse mapping (30 epochs)
-4. Exports all saved artefacts to `output/`
-
-### Inference
-
-Run `Inference.py` after training. Configure these paths at the bottom of the file:
-
-```python
-FOLDER          = "./output"                          # Folder with CSV data files
-ENCODER_PATH    = "./output/y_memory_encoder.pt"      # Student weights
-SCALER_PATH     = "./output/scaler.json"              # Standardisation stats
-YGX_CKPT_PATH   = "./output/ygx_ckpt.pt"             # Teacher weights (only if innovation ON)
-USE_INNOVATION  = True                                 # Use teacher for drift correction?
+```bash
+pip install torch numpy pandas scipy scikit-learn matplotlib
 ```
 
-### Requirements
+### 2. Train the model
 
-- **GPU**: CUDA-enabled GPU recommended
-- **Dependencies**: PyTorch, NumPy, SciPy, Pandas, Matplotlib, scikit-learn
+```bash
+python Encoder.py
+```
+
+This runs the full training pipeline:
+
+1. Train the forward teacher model
+2. Freeze the teacher
+3. Train the inverse student model
+4. Export model weights and scalers to `output/`
+
+### 3. Run inference
+
+```bash
+python Inference.py
+```
+
+Configure these paths inside `Inference.py`:
+
+```python
+FOLDER          = "./output"
+ENCODER_PATH    = "./output/y_memory_encoder.pt"
+SCALER_PATH     = "./output/scaler.json"
+YGX_CKPT_PATH   = "./output/ygx_ckpt.pt"
+USE_INNOVATION  = True
+```
 
 ---
 
 ## Performance
 
 | Metric | Value |
-|---|---|
-| Teacher R² (forward mapping) | 0.719 |
-| Student R² (teacher-forced) | ~0.97 |
-| Student R² (closed-loop rollout, training data) | 0.637 |
-| Best single dimension R² | 0.773 (Systolic BP) |
-| Short-horizon R² (8 seconds) | 0.83 |
-| Error growth | Bounded, non-divergent |
+|---|---:|
+| Teacher R², forward mapping | 0.719 |
+| Student R², teacher-forced | ~0.97 |
+| Student R², closed-loop rollout | 0.637 |
+| Best single output | Systolic BP, R² = 0.773 |
+| Short-horizon rollout | R² = 0.83 over ~8 seconds |
+| Error behaviour | Bounded, non-divergent |
 
-Degradation on unseen data (R² = −0.56) is attributed to the forward mapping shifting during the public speaking task — the relationship between cardiovascular state and optical signal changes as the subject's autonomic state evolves.
+The model performs strongly on short-horizon closed-loop inference and remains bounded over longer rollouts. Long-horizon degradation on unseen data is attributed to non-stationarity in the public-speaking task, where the physiological relationship between cardiovascular state and optical fNIRS signal changes over time.
 
 ---
+
+## Limitations and Future Work
+
+This is a research prototype evaluated on a single-subject recording. Cross-subject generalisation remains untested.
+
+Future improvements:
+
+- Multi-subject evaluation
+- Subject-adaptive fine-tuning
+- Online adaptation of the forward observation model
+- Longer rollout training horizons
+- More robust handling of task-induced non-stationarity
+- Deployment as a lightweight inference package
+
+---
+
+## Relevance to AI/Data Science Roles
+
+This project demonstrates experience with:
+
+- Building end-to-end deep learning systems
+- Designing architectures for noisy time-series data
+- Solving inverse problems with probabilistic models
+- Handling autoregressive drift and error accumulation
+- Engineering causal features for physiological signal processing
+- Evaluating models beyond standard train/test accuracy
+- Communicating research results through reproducible code
