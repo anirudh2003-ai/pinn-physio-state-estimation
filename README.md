@@ -1,19 +1,42 @@
-# Simultaneous Multi-Vital Estimation from a Single fNIRS Channel
+# Physics-Informed Neural State Estimation from fNIRS
 
-## Overview
+Deep learning system for recovering cardiovascular state trajectories from a single short-channel fNIRS signal using a learned forward observation model, causal WaveNet inverse encoder, and innovation-feedback drift correction.
 
-This project recovers four cardiovascular measurements from a single optical signal recorded at the scalp using functional near-infrared spectroscopy (fNIRS). The short-channel fNIRS signal — normally discarded as noise — encodes enough physiological information to estimate:
+This project demonstrates applied AI/Data Science skills in probabilistic modelling, time-series forecasting, biomedical signal processing, autoregressive inference, and closed-loop neural state estimation.
 
-| Output | What it is |
-|---|---|
-| **Diastolic BP** | Diastolic blood pressure |
-| **Systolic BP** | Systolic blood pressure |
-| **Cardiac Output** | Volume of blood pumped per minute |
-| **Stroke Volume** | Volume of blood pumped per heartbeat |
+## Key Results
 
-The system works in two stages. First, a **teacher** learns the forward relationship — how cardiovascular state produces the optical signal. Then a **student** learns the inverse — recovering cardiovascular state from the optical signal alone, running in a closed-loop where each prediction feeds into the next.
+| Result | Value |
+|---|---:|
+| Forward model R² | 0.719 |
+| Teacher-forced student R² | ~0.97 |
+| Closed-loop rollout R² | 0.637 |
+| Best recovered signal | Systolic BP, R² = 0.773 |
+| Short-horizon closed-loop R² | 0.83 over ~8 seconds |
+| Error growth | Bounded / non-divergent |
 
----
+## What I Built
+
+I built a two-stage neural system that estimates four cardiovascular variables from one optical fNIRS signal:
+
+- Diastolic blood pressure
+- Systolic blood pressure
+- Cardiac output
+- Stroke volume
+
+The model uses a physics-informed observation-consistency loop:
+
+1. A conditional normalizing-flow teacher learns the forward relationship: cardiovascular state → optical signal.
+2. A causal WaveNet student learns the inverse relationship: optical signal → cardiovascular state.
+3. During rollout, the student’s predicted state is passed back through the frozen teacher.
+4. The difference between the teacher-predicted optical signal and the observed optical signal becomes an innovation signal for drift correction.
+
+```text
+Short-channel fNIRS → causal features → WaveNet student → cardiovascular state estimate
+                                      ↓
+                           frozen forward teacher
+                                      ↓
+                     observation mismatch / innovation feedback
 
 ## How It Works
 
